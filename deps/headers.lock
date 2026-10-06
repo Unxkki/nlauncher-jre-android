@@ -1,0 +1,22 @@
+# Compile-time-only headers for java.desktop (headless).
+#
+# Upstream configure requires X11, CUPS and fontconfig headers for every
+# Linux target, even with --enable-headless-only (libawt_headless and
+# libfontmanager include them; the libraries themselves are never linked,
+# CUPS/fontconfig are dlopen()ed at run time and simply absent on Android).
+# We take the headers from Debian 12 "bookworm" -dev packages, pinned by
+# version and sha256. Headers are architecture independent.
+#
+# Format: <package> <pool path> <sha256>
+# Mirrors tried in order: $DEBIAN_MIRRORS (default below).
+x11proto-dev      pool/main/x/xorgproto/x11proto-dev_2022.1-1_all.deb                 3cab66a6591774188a568f9b54c4e7956f18da76e0e0fc4a779db5f6bcc3f148
+libx11-dev        pool/main/libx/libx11/libx11-dev_1.8.4-2+deb12u2_amd64.deb         8493220d4309af1907a1f2f6eeb204c8103dafcc368394fbc4a0858c28612ff9
+libxext-dev       pool/main/libx/libxext/libxext-dev_1.3.4-1+b1_amd64.deb            591456aba90eeed7a1c1b044d469fd7704bf7d83af9dc574bbe2efc4a2fd1dba
+libxrender-dev    pool/main/libx/libxrender/libxrender-dev_0.9.10-1.1_amd64.deb      51be2e92b7bb9a81f8dbcad7a0086a58c779761c17f8aa13893b843bced0ae9b
+libxtst-dev       pool/main/libx/libxtst/libxtst-dev_1.2.3-1.1_amd64.deb             e81d9780229d2d5892148f95fa73d7aaa33ad9af0a14623782001a27034d1633
+libxt-dev         pool/main/libx/libxt/libxt-dev_1.2.1-1.1_amd64.deb                 4d1ccc5406d14b47a5bf3a40504d84d731a8efaf7fd971c792283b2279dcbb70
+libxi-dev         pool/main/libx/libxi/libxi-dev_1.8-1+b1_amd64.deb                  80cd30f783e90a46b0190990d6194dc83d9c24d67a81cc2346f69b8e2ddc9590
+libxrandr-dev     pool/main/libx/libxrandr/libxrandr-dev_1.5.2-2+b1_amd64.deb        a0048d088226403419d9b0856e2d6d29a4facdd1708b6ceda095d7190f819ff3
+libcups2-dev      pool/main/c/cups/libcups2-dev_2.4.2-3+deb12u9_amd64.deb            79cbfe2d4b9011f6661ad19d9bee1224b05e5d733a700aa64df37551b68f5d95
+libcupsimage2-dev pool/main/c/cups/libcupsimage2-dev_2.4.2-3+deb12u9_amd64.deb       26ca3889d85aecd60d9d2a9e356e15bf34eda729259607fd419f947c43cb4cdc
+libfontconfig-dev pool/main/f/fontconfig/libfontconfig-dev_2.14.1-4_amd64.deb        74f4bbde5795e4fb4c453308bd0eb8ef45d7ade3cf11b3c18394f9e2c15d28df

@@ -1,0 +1,25 @@
+# Modules of the runtime image (jlink --add-modules). One per line, # comments.
+# Goal: everything Minecraft Java Edition 1.21.x, Fabric/Quilt/Forge/NeoForge
+# loaders and typical mods need, without developer tools.
+
+java.se              # aggregator: java.base, java.desktop (headless AWT/ImageIO), java.sql,
+                     # java.naming, java.net.http, java.management, java.scripting, ...
+jdk.unsupported      # sun.misc.Unsafe & co. (LWJGL, Netty, fastutil, many mods)
+jdk.crypto.ec        # SunEC provider: ECDHE/ECDSA for TLS (still a separate module in 21)
+jdk.zipfs            # zip/jar FileSystem provider (Fabric/Forge mod loading)
+jdk.naming.dns       # JNDI DNS provider: Minecraft server SRV record lookups
+jdk.localedata       # non-English locale data (number/date formats for ru, uk, ...)
+jdk.charsets         # extended charsets
+jdk.management       # com.sun.management MXBeans (profilers, spark, crash reports)
+jdk.jfr              # Flight Recorder API (Minecraft's /jfr command, profiling mods)
+jdk.management.jfr   # JFR over JMX
+jdk.net              # extended socket options
+jdk.httpserver       # com.sun.net.httpserver (a few mods embed a web UI)
+jdk.security.auth    # JAAS login modules referenced by some auth libraries
+jdk.dynalink         # dynamic linking API (required by standalone Nashorn that some mods bundle)
+jdk.random           # extra RandomGenerator algorithms (RandomGenerator.of("L64X128MixRandom"))
+
+# Deliberately not included: compilers and dev tools (jdk.compiler, jdk.jshell,
+# jdk.jdi, jdk.jdwp.agent, jdk.attach, jdk.jcmd, jdk.jlink, jdk.jpackage,
+# jdk.hotspot.agent ...), jdk.incubator.*, jdk.accessibility,
+# jdk.unsupported.desktop, java.smartcardio, jdk.crypto.cryptoki, jdk.sctp.
