@@ -1,0 +1,190 @@
+name: Build JRE (ubuntu)
+
+# Main build path: GitHub-hosted ubuntu-24.04 (free for public repositories).
+# - workflow_dispatch: build the chosen target(s) and upload workflow artifacts.
+# - push of a tag jre21-<version>.<build>-nl<rev>: build, then publish a GitHub
+#   Release with the JRE archives, their .sha256 files and the source bundle.
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: 'Target ABI'
+        type: choice
+        options: [aarch64, arm, both]
+        default: aarch64
+  push:
+    tags: ['jre21-*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  plan:
+    runs-on: ubuntu-24.04
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+      tag: ${{ steps.plan.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: plan
+        env:
+          EVENT: ${{ github.event_name }}
+          INPUT_TARGET: ${{ inputs.target }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          . scripts/common.sh
+          expected="$(release_tag)"
+          if [ "$EVENT" = push ]; then
+            if [ "$REF_NAME" != "$expected" ]; then
+              echo "::error::tag $REF_NAME does not match config.env (expected $expected)"
+              exit 1
+            fi
+            target=both
+          else
+            target="${INPUT_TARGET:-aarch64}"
+          fi
+          case "$target" in
+            aarch64) matrix='["aarch64"]' ;;
+            arm)     matrix='["arm"]' ;;
+            both)    matrix='["aarch64","arm"]' ;;
+            *) echo "::error::bad target $target"; exit 1 ;;
+          esac
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+          echo "tag=$expected" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: plan
+    runs-on: ubuntu-24.04
+    timeout-minutes: 300
+    strategy:
+      fail-fast: false
+      matrix:
+        target: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    # armv7 is optional: a failing arm build does not block the release.
+    continue-on-error: ${{ matrix.target == 'arm' }}
+    env:
+      TARGET: ${{ matrix.target }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/node_modules /opt/ghc /usr/local/.ghcup \
+                      /opt/hostedtoolcache/CodeQL /usr/share/swift || true
+          df -h /
+
+      - name: Host packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends autoconf make zip unzip file clang xz-utils
+
+      - name: Boot JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Android NDK r28c
+        run: |
+          ndk="$(scripts/install-ndk.sh "$RUNNER_TEMP/ndk")"
+          echo "ANDROID_NDK_HOME=$ndk" >> "$GITHUB_ENV"
+
+      - name: Fetch sources and build headers
+        run: |
+          scripts/fetch-source.sh
+          scripts/fetch-headers.sh
+
+      - name: Apply patches
+        run: scripts/apply-patches.sh
+
+      - name: Build
+        run: BOOT_JDK="$JAVA_HOME" scripts/build.sh
+
+      - name: Package
+        run: scripts/package.sh
+
+      - name: Upload JRE
+        uses: actions/upload-artifact@v4
+        with:
+          name: jre21-android-${{ matrix.target == 'aarch64' && 'arm64' || 'arm' }}
+          if-no-files-found: error
+          retention-days: 14
+          path: |
+            out/jre21-android-*.tar.xz
+            out/jre21-android-*.tar.xz.sha256
+
+      - name: Upload build logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: logs-${{ matrix.target }}
+          retention-days: 7
+          path: |
+            work/src/*/build/*/configure-support/config.log
+            work/src/*/build/*/build.log
+            work/src/*/build/*/make-support/failure-logs/**
+
+  sources:
+    needs: plan
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Source bundle (GPLv2 section 3)
+        run: |
+          scripts/fetch-source.sh --download-only
+          scripts/fetch-headers.sh
+          scripts/make-source-bundle.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: jre21-android-sources
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+          path: |
+            out/jre21-android-sources.tar
+            out/jre21-android-sources.tar.sha256
+
+  release:
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/jre21-')
+    needs: [plan, build, sources]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Verify checksums
+        run: |
+          cd dist
+          ls -la
+          test -f jre21-android-arm64.tar.xz
+          for f in *.sha256; do sha256sum -c "$f"; done
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.plan.outputs.tag }}
+        run: |
+          set -euo pipefail
+          . scripts/common.sh
+          {
+            echo "OpenJDK ${JDK_VERSION}+${JDK_BUILD} for Android (API ${ANDROID_API}+), NDK ${NDK_VERSION}, revision nl${NL_REVISION}."
+            echo
+            echo "Upstream: https://github.com/openjdk/jdk${JDK_FEATURE}u/tree/${JDK_TAG} (tarball sha256 \`${JDK_SRC_SHA256}\`)."
+            echo
+            echo "Assets:"
+            for f in dist/*.tar.xz dist/*.tar; do
+              echo "- \`$(basename "$f")\` — sha256 \`$(cut -d' ' -f1 "$f.sha256")\`"
+            done
+            echo
+            echo "\`jre21-android-sources.tar\` is the complete corresponding source of these binaries (upstream tarball, patches, build scripts, header packages)."
+            echo "License: GPLv2 with the Classpath Exception (HotSpot: GPLv2). See LICENSE."
+          } > notes.md
+          gh release create "$TAG" --title "$TAG" --notes-file notes.md dist/*.tar.xz dist/*.tar dist/*.sha256

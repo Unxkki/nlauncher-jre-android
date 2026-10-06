@@ -1,0 +1,122 @@
+name: Build JRE (self-hosted macOS, experimental)
+
+# Fallback path: cross-compile on the owner's Apple Silicon runner.
+# The supported path is build.yml on ubuntu-24.04; building OpenJDK for
+# Android from a macOS host is not covered by upstream documentation and is
+# considered experimental. Artifacts are uploaded to the workflow run only;
+# releases are always made by build.yml.
+#
+# Runner prerequisites: Xcode command line tools, Homebrew (autoconf, make,
+# xz are installed on demand), Python 3, ~15 GB free disk.
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: 'Target ABI'
+        type: choice
+        options: [aarch64, arm]
+        default: aarch64
+      temurin_build_jdk:
+        description: 'Use Temurin of the same version as the Build JDK instead of building one'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: [self-hosted, macOS, ARM64]
+    timeout-minutes: 360
+    env:
+      TARGET: ${{ inputs.target }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache directory
+        run: |
+          # Keep downloads (JDK tarball, header packages, NDK) between runs.
+          echo "DOWNLOAD_DIR=$RUNNER_TOOL_CACHE/nlauncher-jre-android/downloads" >> "$GITHUB_ENV"
+
+      - name: Host tools
+        run: |
+          set -eu
+          test "$(uname -m)" = arm64
+          xcode-select -p
+          for f in autoconf make xz; do
+            if ! brew list --versions "$f" >/dev/null 2>&1; then brew install "$f"; fi
+          done
+          echo "$(brew --prefix make)/libexec/gnubin" >> "$GITHUB_PATH"
+          python3 --version
+
+      - name: Read pinned version
+        id: cfg
+        run: |
+          . scripts/common.sh
+          echo "jdk_version=$JDK_VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Boot JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          architecture: aarch64
+
+      - name: Build JDK of the same version (optional)
+        if: inputs.temurin_build_jdk
+        id: buildjdk
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ steps.cfg.outputs.jdk_version }}
+          architecture: aarch64
+
+      - name: Android NDK r28c
+        run: |
+          # $ANDROID_NDK_HOME, ~/Library/Android/sdk/ndk/28.2.13676358, or download.
+          ndk="$(scripts/install-ndk.sh "$RUNNER_TOOL_CACHE/nlauncher-jre-android/ndk")"
+          echo "ANDROID_NDK_HOME=$ndk" >> "$GITHUB_ENV"
+
+      - name: Fetch sources and build headers
+        run: |
+          scripts/fetch-source.sh
+          scripts/fetch-headers.sh
+
+      - name: Apply patches
+        run: scripts/apply-patches.sh
+
+      - name: Build
+        env:
+          BOOT_JDK: ${{ env.JAVA_HOME }}
+          USE_TEMURIN_BUILD_JDK: ${{ inputs.temurin_build_jdk }}
+          TEMURIN_BUILD_JDK: ${{ steps.buildjdk.outputs.path }}
+        run: |
+          if [ "$USE_TEMURIN_BUILD_JDK" = true ]; then export BUILD_JDK="$TEMURIN_BUILD_JDK"; fi
+          BUILD_CC=clang BUILD_CXX=clang++ scripts/build.sh
+
+      - name: Package
+        run: scripts/package.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-jre21-android-${{ inputs.target == 'aarch64' && 'arm64' || 'arm' }}
+          if-no-files-found: error
+          retention-days: 7
+          path: |
+            out/jre21-android-*.tar.xz
+            out/jre21-android-*.tar.xz.sha256
+
+      - name: Upload build logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-logs-${{ inputs.target }}
+          retention-days: 7
+          path: |
+            work/src/*/build/*/configure-support/config.log
+            work/src/*/build/*/build.log
+            work/src/*/build/*/make-support/failure-logs/**
+
+      - name: Remove build tree
+        if: always()
+        run: rm -rf work out
