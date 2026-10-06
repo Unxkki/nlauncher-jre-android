@@ -1,0 +1,22 @@
+From: NLauncher <opensource@nlauncher.net>
+Subject: [PATCH] android: look for fonts in /system/fonts
+
+Without fontconfig the JDK falls back to a fixed list of font
+directories. Add Android's /system/fonts at the front of that list.
+---
+
+diff --git a/src/java.desktop/unix/native/common/awt/fontpath.c b/src/java.desktop/unix/native/common/awt/fontpath.c
+--- a/src/java.desktop/unix/native/common/awt/fontpath.c
++++ b/src/java.desktop/unix/native/common/awt/fontpath.c
+@@ -62,6 +62,9 @@
+  * various flavors of Linux
+  */
+ static char *fullLinuxFontPath[] = {
++#ifdef __ANDROID__
++    "/system/fonts",                      /* Android */
++#endif
+     "/usr/X11R6/lib/X11/fonts/TrueType",  /* RH 7.1+ */
+     "/usr/X11R6/lib/X11/fonts/truetype",  /* SuSE */
+     "/usr/X11R6/lib/X11/fonts/tt",
+-- 
+nlauncher-jre-android

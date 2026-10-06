@@ -1,0 +1,53 @@
+From: NLauncher <opensource@nlauncher.net>
+Subject: [PATCH] android: build without ALSA, skip libjsound
+
+Android has no ALSA. Upstream configure insists on ALSA for every Linux
+target and java.desktop always builds libjsound against it. For targets
+whose host_os contains "android" we mark ALSA as not needed and skip
+libjsound when ALSA_LIBS is empty. javax.sound.sampled/midi then run
+without the native "direct audio" and port mixers (Platform.java already
+handles a missing libjsound). Minecraft does not use javax.sound.
+---
+
+diff --git a/make/autoconf/libraries.m4 b/make/autoconf/libraries.m4
+--- a/make/autoconf/libraries.m4
++++ b/make/autoconf/libraries.m4
+@@ -77,6 +77,13 @@
+   # Check if alsa is needed
+   if test "x$OPENJDK_TARGET_OS" = xlinux; then
+     NEEDS_LIB_ALSA=true
++    # Android (bionic) has no ALSA. libjsound is not built there and
++    # javax.sound falls back to its pure-Java implementation.
++    case "$host_os" in
++      *android*)
++        NEEDS_LIB_ALSA=false
++        ;;
++    esac
+   else
+     NEEDS_LIB_ALSA=false
+   fi
+diff --git a/make/modules/java.desktop/Lib.gmk b/make/modules/java.desktop/Lib.gmk
+--- a/make/modules/java.desktop/Lib.gmk
++++ b/make/modules/java.desktop/Lib.gmk
+@@ -40,7 +40,18 @@
+ ################################################################################
+ # Create the libjsound library
+ 
+-ifeq ($(call isTargetOs, aix), false)
++LIBJSOUND_ENABLED := true
++ifeq ($(call isTargetOs, aix), true)
++  LIBJSOUND_ENABLED := false
++endif
++ifeq ($(call isTargetOs, linux), true)
++  ifeq ($(ALSA_LIBS), )
++    # No ALSA available (Android): skip libjsound.
++    LIBJSOUND_ENABLED := false
++  endif
++endif
++
++ifeq ($(LIBJSOUND_ENABLED), true)
+ 
+   LIBJSOUND_CFLAGS := \
+       $(ALSA_CFLAGS) \
+-- 
+nlauncher-jre-android

@@ -1,0 +1,33 @@
+From: NLauncher <opensource@nlauncher.net>
+Subject: [PATCH] android: never use large pages / SysV shm
+
+Termux links HotSpot against libandroid-shmem to emulate SysV shared
+memory, which is only used for -XX:+UseSHM large pages. We do not ship
+that library: shmget()/shmat() exist in bionic since API 26, so libjvm
+links fine with API 29, and on Android we force all large page modes off
+(SELinux denies SysV shm to apps, hugetlbfs is not available).
+---
+
+diff --git a/src/hotspot/os/linux/os_linux.cpp b/src/hotspot/os/linux/os_linux.cpp
+--- a/src/hotspot/os/linux/os_linux.cpp
++++ b/src/hotspot/os/linux/os_linux.cpp
+@@ -3979,6 +3979,17 @@
+     return;
+   }
+ 
++#ifdef __ANDROID__
++  // Android apps cannot use SysV shared memory (blocked by SELinux) and
++  // hugetlbfs is not exposed to them. Never use large pages.
++  if (!FLAG_IS_DEFAULT(UseLargePages) || !FLAG_IS_DEFAULT(UseTransparentHugePages) ||
++      !FLAG_IS_DEFAULT(UseHugeTLBFS) || !FLAG_IS_DEFAULT(UseSHM)) {
++    log_warning(pagesize)("Large pages are not supported on Android; ignoring large page flags.");
++  }
++  UseLargePages = UseTransparentHugePages = UseHugeTLBFS = UseSHM = false;
++  return;
++#endif
++
+   if (!FLAG_IS_DEFAULT(UseLargePages) && !UseLargePages) {
+     // The user explicitly turned off large pages.
+     // Ignore the rest of the large pages flags.
+-- 
+nlauncher-jre-android

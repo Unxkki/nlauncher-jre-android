@@ -1,0 +1,45 @@
+From: NLauncher <opensource@nlauncher.net>
+Subject: [PATCH] dns: allow overriding the resolv.conf location
+
+JNDI DNS lookups (used e.g. for Minecraft server SRV records) get their
+name servers from /etc/resolv.conf, which does not exist on Android. Add
+the system property jdk.android.resolvConf (default /etc/resolv.conf) so
+the embedding app can supply a resolv.conf-format file. Without it the
+behaviour is unchanged. Termux instead hard-codes $PREFIX/etc/resolv.conf.
+---
+
+diff --git a/src/java.base/unix/classes/sun/net/dns/ResolverConfigurationImpl.java b/src/java.base/unix/classes/sun/net/dns/ResolverConfigurationImpl.java
+--- a/src/java.base/unix/classes/sun/net/dns/ResolverConfigurationImpl.java
++++ b/src/java.base/unix/classes/sun/net/dns/ResolverConfigurationImpl.java
+@@ -31,6 +31,7 @@
+ import java.io.BufferedReader;
+ import java.io.FileReader;
+ import java.io.IOException;
++import sun.security.action.GetPropertyAction;
+ 
+ /*
+  * An implementation of ResolverConfiguration for Solaris
+@@ -53,6 +54,12 @@
+     // Resolver options
+     private final Options opts;
+ 
++    // Location of resolv.conf. Android has no /etc/resolv.conf; an embedding
++    // application can write the current DNS servers (from ConnectivityManager)
++    // to a file of its own and point -Djdk.android.resolvConf=<path> at it.
++    private static final String RESOLV_CONF =
++        GetPropertyAction.privilegedGetProperty("jdk.android.resolvConf", "/etc/resolv.conf");
++
+     // Parse /etc/resolv.conf to get the values for a particular
+     // keyword.
+     //
+@@ -64,7 +71,7 @@
+ 
+         try {
+             BufferedReader in =
+-                new BufferedReader(new FileReader("/etc/resolv.conf"));
++                new BufferedReader(new FileReader(RESOLV_CONF));
+             String line;
+             while ((line = in.readLine()) != null) {
+                 int maxvalues = maxperkeyword;
+-- 
+nlauncher-jre-android

@@ -1,0 +1,74 @@
+From: NLauncher <opensource@nlauncher.net>
+Subject: [PATCH] android: take HotSpot temp directory from $TMPDIR
+
+Replaces the Termux approach (a hard-coded $PREFIX/tmp in os_linux.cpp,
+perfMemory_posix.cpp and jdk.attach) with a prefix-independent one:
+HotSpot's system temp directory (hsperfdata, attach files, hs_err
+fallback, replay files) is taken from $TMPDIR, falling back to
+/data/local/tmp. The embedding app is expected to set TMPDIR to its cache
+directory (and normally runs with -XX:-UsePerfData anyway).
+---
+
+diff --git a/src/hotspot/os/linux/os_linux.cpp b/src/hotspot/os/linux/os_linux.cpp
+--- a/src/hotspot/os/linux/os_linux.cpp
++++ b/src/hotspot/os/linux/os_linux.cpp
+@@ -1469,7 +1469,20 @@
+ 
+ // This must be hard coded because it's the system's temporary
+ // directory not the java application's temp directory, ala java.io.tmpdir.
++#ifndef __ANDROID__
+ const char* os::get_temp_directory() { return "/tmp"; }
++#else
++// Android has no /tmp. Use $TMPDIR (the embedding app sets it to its cache
++// directory before creating the JVM), falling back to /data/local/tmp.
++const char* os::get_temp_directory() {
++  static const char* temp_dir = nullptr;
++  if (temp_dir == nullptr) {
++    const char* env = ::getenv("TMPDIR");
++    temp_dir = (env != nullptr && env[0] != '\0') ? env : "/data/local/tmp";
++  }
++  return temp_dir;
++}
++#endif
+ 
+ // check if addr is inside libjvm.so
+ bool os::address_is_in_vm(address addr) {
+diff --git a/src/hotspot/os/posix/perfMemory_posix.cpp b/src/hotspot/os/posix/perfMemory_posix.cpp
+--- a/src/hotspot/os/posix/perfMemory_posix.cpp
++++ b/src/hotspot/os/posix/perfMemory_posix.cpp
+@@ -135,7 +135,13 @@
+ // return the user specific temporary directory name.
+ // the caller is expected to free the allocated memory.
+ //
++#ifdef __ANDROID__
++// The temporary directory comes from $TMPDIR on Android (see os_linux.cpp),
++// so its length is not known in advance.
++#define TMP_BUFFER_LEN (MAXPATHLEN + 1)
++#else
+ #define TMP_BUFFER_LEN (4+22)
++#endif
+ static char* get_user_tmp_dir(const char* user, int vmid, int nspid) {
+   char* tmpdir = (char *)os::get_temp_directory();
+ #if defined(LINUX)
+@@ -143,7 +149,9 @@
+   // /proc/{vmid}/root/tmp/{PERFDATA_NAME_user}
+   // otherwise /tmp/{PERFDATA_NAME_user}
+   char buffer[TMP_BUFFER_LEN];
++#ifndef __ANDROID__
+   assert(strlen(tmpdir) == 4, "No longer using /tmp - update buffer size");
++#endif
+ 
+   if (nspid != -1) {
+     jio_snprintf(buffer, TMP_BUFFER_LEN, "/proc/%d/root%s", vmid, tmpdir);
+@@ -518,7 +526,9 @@
+   char* tmpdirname = (char *)os::get_temp_directory();
+ #if defined(LINUX)
+   char buffer[MAXPATHLEN + 1];
++#ifndef __ANDROID__
+   assert(strlen(tmpdirname) == 4, "No longer using /tmp - update buffer size");
++#endif
+ 
+   // On Linux, if nspid != -1, look in /proc/{vmid}/root/tmp for directories
+   // containing nspid, otherwise just look for vmid in /tmp.
+-- 
+nlauncher-jre-android

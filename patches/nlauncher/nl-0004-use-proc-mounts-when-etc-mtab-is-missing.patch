@@ -1,0 +1,28 @@
+From: NLauncher <opensource@nlauncher.net>
+Subject: [PATCH] nio: use /proc/mounts when /etc/mtab is missing
+
+Android has no /etc/mtab, so FileSystem.getFileStores() returned nothing.
+Fall back to /proc/mounts when /etc/mtab does not exist. Replaces the
+corresponding hunk of Termux's "Update hardcoded paths" patch without
+depending on an installation prefix.
+---
+
+diff --git a/src/java.base/linux/classes/sun/nio/fs/LinuxFileSystem.java b/src/java.base/linux/classes/sun/nio/fs/LinuxFileSystem.java
+--- a/src/java.base/linux/classes/sun/nio/fs/LinuxFileSystem.java
++++ b/src/java.base/linux/classes/sun/nio/fs/LinuxFileSystem.java
+@@ -124,7 +124,12 @@
+      */
+     @Override
+     List<UnixMountEntry> getMountEntries() {
+-        return getMountEntries("/etc/mtab");
++        String mtab = "/etc/mtab";
++        if (!new java.io.File(mtab).exists()) {
++            // No /etc/mtab (e.g. Android): use the kernel's mount table.
++            mtab = "/proc/mounts";
++        }
++        return getMountEntries(mtab);
+     }
+ 
+     @Override
+-- 
+nlauncher-jre-android
