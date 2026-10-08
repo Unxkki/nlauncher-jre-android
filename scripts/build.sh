@@ -49,6 +49,19 @@ CXX_T="$TC/${CLANG_TRIPLE}${ANDROID_API}-clang++"
 #  - libc++ is linked statically (--with-stdc++lib=static below); keep its
 #    symbols out of the dynamic symbol tables of our libraries.
 EXTRA_LDFLAGS="-Wl,-z,max-page-size=16384 -Wl,--exclude-libs,libc++_static.a -Wl,--exclude-libs,libc++abi.a -Wl,--exclude-libs,libunwind.a"
+
+# Bionic has no separate libpthread / librt: their functions live in libc
+# (NDK "Build System Maintainers Guide"), and the NDK sysroot ships neither
+# library. OpenJDK's make files still pass -lpthread and -lrt on Linux targets,
+# so we give the linker empty archives with those names. They contribute no
+# objects; the symbols resolve from libc as usual.
+STUB_LIB_DIR="$WORK_DIR/android-stub-libs/$TARGET"
+mkdir -p "$STUB_LIB_DIR"
+for stub in pthread rt; do
+  rm -f "$STUB_LIB_DIR/lib$stub.a"
+  "$TC/llvm-ar" rcs "$STUB_LIB_DIR/lib$stub.a"
+done
+EXTRA_LDFLAGS="$EXTRA_LDFLAGS -L$STUB_LIB_DIR"
 EXTRA_CFLAGS=""
 EXTRA_CXXFLAGS=""
 
