@@ -13,7 +13,9 @@ Checks every ELF file below <image-dir>:
   * every DT_NEEDED is either an Android system library from the NDK's
     stable API set or a library shipped inside the image;
   * none of the known-unwanted dependencies (libc++_shared, Termux helper
-    libraries, X11, ALSA, CUPS, fontconfig, freetype) is referenced.
+    libraries, X11, ALSA, CUPS, fontconfig, a system freetype) is referenced.
+    The image's own libfreetype.so (configure --with-freetype=bundled builds
+    it from the OpenJDK tree) is allowed.
 Exit status 1 if anything fails.
 """
 import argparse
@@ -24,6 +26,8 @@ import sys
 SYSTEM_LIBS = {"libc.so", "libm.so", "libdl.so", "liblog.so", "libz.so", "libandroid.so"}
 FORBIDDEN_PREFIXES = ("libc++_shared", "libandroid-shmem", "libandroid-spawn", "libiconv",
                       "libasound", "libX", "libcups", "libfontconfig", "libfreetype")
+# Built from the OpenJDK source tree and shipped in the image (--with-freetype=bundled).
+BUNDLED_OK = {"libfreetype.so"}
 EM = {"aarch64": 183, "arm": 40}
 PT_LOAD, PT_DYNAMIC = 1, 2
 DT_NULL, DT_NEEDED, DT_STRTAB, DT_RPATH, DT_TEXTREL, DT_FLAGS, DT_RUNPATH = 0, 1, 5, 15, 22, 30, 29
@@ -133,7 +137,7 @@ def main():
                 if part and not part.startswith("$ORIGIN"):
                     problems.append(f"absolute RUNPATH entry {part!r}")
         for n in e["needed"]:
-            if n.startswith(FORBIDDEN_PREFIXES):
+            if n.startswith(FORBIDDEN_PREFIXES) and not (n in BUNDLED_OK and n in shipped):
                 problems.append(f"forbidden dependency {n}")
             elif n not in SYSTEM_LIBS and n not in shipped:
                 problems.append(f"dependency {n} is neither a system library nor shipped")
